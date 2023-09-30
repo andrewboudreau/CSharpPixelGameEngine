@@ -1,0 +1,19 @@
+﻿olc::PixelGameEngine - The core engine class
+olc::Pixel - Represents a pixel color
+olc::Sprite - An image represented by pixels
+olc::Decal - A GPU resident version of a Sprite
+olc::Renderable - Pairs a Sprite and Decal
+olc::ResourcePack - Resource manager
+olc::ResourceBuffer - Memory buffer for resource data
+olc::ImageLoader - Abstract base class for image loading
+olc::Renderer - Abstract renderer class
+olc::LayerDesc - Layer properties
+olc::DecalInstance - A rendered Decal instance
+olc::PGEX - Extension class
+olc::Platform - Platform abstraction
+olc::vi2d - 2D integer vector
+olc::vf2d - 2D floating point vector
+
+
+
+

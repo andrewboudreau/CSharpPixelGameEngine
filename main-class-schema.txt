@@ -1,0 +1,203 @@
+
+	// O------------------------------------------------------------------------------O
+	// | olc::ResourcePack - A virtual scrambled filesystem to pack your assets into  |
+	// O------------------------------------------------------------------------------O
+	struct ResourceBuffer : public std::streambuf
+	{
+		ResourceBuffer(std::ifstream& ifs, uint32_t offset, uint32_t size);
+		std::vector<char> vMemory;
+	};
+
+	class ResourcePack : public std::streambuf
+	{
+	public:
+		ResourcePack();
+		~ResourcePack();
+		bool AddFile(const std::string& sFile);
+		bool LoadPack(const std::string& sFile, const std::string& sKey);
+		bool SavePack(const std::string& sFile, const std::string& sKey);
+		ResourceBuffer GetFileBuffer(const std::string& sFile);
+		bool Loaded();
+	private:
+		struct sResourceFile { uint32_t nSize; uint32_t nOffset; };
+		std::map<std::string, sResourceFile> mapFiles;
+		std::ifstream baseFile;
+		std::vector<char> scramble(const std::vector<char>& data, const std::string& key);
+		std::string makeposix(const std::string& path);
+	};
+
+
+	class ImageLoader
+	{
+	public:
+		ImageLoader() = default;
+		virtual ~ImageLoader() = default;
+		virtual olc::rcode LoadImageResource(olc::Sprite* spr, const std::string& sImageFile, olc::ResourcePack* pack) = 0;
+		virtual olc::rcode SaveImageResource(olc::Sprite* spr, const std::string& sImageFile) = 0;
+	};
+
+
+	// O------------------------------------------------------------------------------O
+	// | olc::Sprite - An image represented by a 2D array of olc::Pixel               |
+	// O------------------------------------------------------------------------------O
+	class Sprite
+	{
+	public:
+		Sprite();
+		Sprite(const std::string& sImageFile, olc::ResourcePack* pack = nullptr);
+		Sprite(int32_t w, int32_t h);
+		Sprite(const olc::Sprite&) = delete;
+		~Sprite();
+
+	public:
+		olc::rcode LoadFromFile(const std::string& sImageFile, olc::ResourcePack* pack = nullptr);
+
+	public:
+		int32_t width = 0;
+		int32_t height = 0;
+		enum Mode { NORMAL, PERIODIC, CLAMP };
+		enum Flip { NONE = 0, HORIZ = 1, VERT = 2 };
+
+	public:
+		void SetSampleMode(olc::Sprite::Mode mode = olc::Sprite::Mode::NORMAL);
+		Pixel GetPixel(int32_t x, int32_t y) const;
+		bool  SetPixel(int32_t x, int32_t y, Pixel p);
+		Pixel GetPixel(const olc::vi2d& a) const;
+		bool  SetPixel(const olc::vi2d& a, Pixel p);
+		Pixel Sample(float x, float y) const;
+		Pixel Sample(const olc::vf2d& uv) const;
+		Pixel SampleBL(float u, float v) const;
+		Pixel SampleBL(const olc::vf2d& uv) const;
+		Pixel* GetData();
+		olc::Sprite* Duplicate();
+		olc::Sprite* Duplicate(const olc::vi2d& vPos, const olc::vi2d& vSize);
+		olc::vi2d Size() const;
+		std::vector<olc::Pixel> pColData;
+		Mode modeSample = Mode::NORMAL;
+
+		static std::unique_ptr<olc::ImageLoader> loader;
+	};
+
+	// O------------------------------------------------------------------------------O
+	// | olc::Decal - A GPU resident storage of an olc::Sprite                        |
+	// O------------------------------------------------------------------------------O
+	class Decal
+	{
+	public:
+		Decal(olc::Sprite* spr, bool filter = false, bool clamp = true);
+		Decal(const uint32_t nExistingTextureResource, olc::Sprite* spr);
+		virtual ~Decal();
+		void Update();
+		void UpdateSprite();
+
+	public: // But dont touch
+		int32_t id = -1;
+		olc::Sprite* sprite = nullptr;
+		olc::vf2d vUVScale = { 1.0f, 1.0f };
+	};
+
+	enum class DecalMode
+	{
+		NORMAL,
+		ADDITIVE,
+		MULTIPLICATIVE,
+		STENCIL,
+		ILLUMINATE,
+		WIREFRAME,
+		MODEL3D,
+	};
+
+	enum class DecalStructure
+	{
+		LINE,
+		FAN,
+		STRIP,
+		LIST
+	};
+
+	// O------------------------------------------------------------------------------O
+	// | olc::Renderable - Convenience class to keep a sprite and decal together      |
+	// O------------------------------------------------------------------------------O
+	class Renderable
+	{
+	public:
+		Renderable() = default;		
+		Renderable(Renderable&& r) : pSprite(std::move(r.pSprite)), pDecal(std::move(r.pDecal)) {}		
+		Renderable(const Renderable&) = delete;
+		olc::rcode Load(const std::string& sFile, ResourcePack* pack = nullptr, bool filter = false, bool clamp = true);
+		void Create(uint32_t width, uint32_t height, bool filter = false, bool clamp = true);
+		olc::Decal* Decal() const;
+		olc::Sprite* Sprite() const;
+
+	private:
+		std::unique_ptr<olc::Sprite> pSprite = nullptr;
+		std::unique_ptr<olc::Decal> pDecal = nullptr;
+	};
+
+
+	// O------------------------------------------------------------------------------O
+	// | Auxilliary components internal to engine                                     |
+	// O------------------------------------------------------------------------------O
+
+	struct DecalInstance
+	{
+		olc::Decal* decal = nullptr;
+		std::vector<olc::vf2d> pos;
+		std::vector<olc::vf2d> uv;
+		std::vector<float> w;
+		std::vector<olc::Pixel> tint;
+		olc::DecalMode mode = olc::DecalMode::NORMAL;
+		olc::DecalStructure structure = olc::DecalStructure::FAN;
+		uint32_t points = 0;
+	};
+
+	struct LayerDesc
+	{
+		olc::vf2d vOffset = { 0, 0 };
+		olc::vf2d vScale = { 1, 1 };
+		bool bShow = false;
+		bool bUpdate = false;
+		olc::Renderable pDrawTarget;
+		uint32_t nResID = 0;
+		std::vector<DecalInstance> vecDecalInstance;
+		olc::Pixel tint = olc::WHITE;
+		std::function<void()> funcHook = nullptr;
+	};
+
+	class Renderer
+	{
+	public:
+		virtual ~Renderer() = default;
+		virtual void       PrepareDevice() = 0;
+		virtual olc::rcode CreateDevice(std::vector<void*> params, bool bFullScreen, bool bVSYNC) = 0;
+		virtual olc::rcode DestroyDevice() = 0;
+		virtual void       DisplayFrame() = 0;
+		virtual void       PrepareDrawing() = 0;
+		virtual void	   SetDecalMode(const olc::DecalMode& mode) = 0;
+		virtual void       DrawLayerQuad(const olc::vf2d& offset, const olc::vf2d& scale, const olc::Pixel tint) = 0;
+		virtual void       DrawDecal(const olc::DecalInstance& decal) = 0;
+		virtual uint32_t   CreateTexture(const uint32_t width, const uint32_t height, const bool filtered = false, const bool clamp = true) = 0;
+		virtual void       UpdateTexture(uint32_t id, olc::Sprite* spr) = 0;
+		virtual void       ReadTexture(uint32_t id, olc::Sprite* spr) = 0;
+		virtual uint32_t   DeleteTexture(const uint32_t id) = 0;
+		virtual void       ApplyTexture(uint32_t id) = 0;
+		virtual void       UpdateViewport(const olc::vi2d& pos, const olc::vi2d& size) = 0;
+		virtual void       ClearBuffer(olc::Pixel p, bool bDepth) = 0;
+		static olc::PixelGameEngine* ptrPGE;
+	};
+
+	class Platform
+	{
+	public:
+		virtual ~Platform() = default;
+		virtual olc::rcode ApplicationStartUp() = 0;
+		virtual olc::rcode ApplicationCleanUp() = 0;
+		virtual olc::rcode ThreadStartUp() = 0;
+		virtual olc::rcode ThreadCleanUp() = 0;
+		virtual olc::rcode CreateGraphics(bool bFullScreen, bool bEnableVSYNC, const olc::vi2d& vViewPos, const olc::vi2d& vViewSize) = 0;
+		virtual olc::rcode CreateWindowPane(const olc::vi2d& vWindowPos, olc::vi2d& vWindowSize, bool bFullScreen) = 0;
+		virtual olc::rcode SetWindowTitle(const std::string& s) = 0;
+		virtual olc::rcode StartSystemEventLoop() = 0;
+		virtual olc::rcode HandleSystemEvent() = 0;
+		static olc::PixelGameEngine* ptrPGE;
+	};
